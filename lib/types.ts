@@ -54,6 +54,7 @@ export interface Report {
   status: "open" | "reunited";
   createdAt: number;
   photoUrl?: string | null; // data URL of an attached photo, if any
+  trustFlags?: string[]; // anti-spam flags raised at intake
 }
 
 // The structured object Claude returns from a free-form report.
@@ -113,4 +114,5 @@ export interface VerificationVerdict {
   requiresHumanSignoff: boolean;
   escalationReason: string | null;
   answerAssessments: AnswerAssessment[];
+  photoComparison: string | null; // visual assessment when both photos exist
 }

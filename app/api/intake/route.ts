@@ -7,23 +7,25 @@ import {
   MATCH_SCHEMA,
   buildMatchPrompt,
 } from "@/lib/prompts";
-import { addReport, listOpen } from "@/lib/store";
+import { addReport, updateReport, listOpen } from "@/lib/store";
+import { checkRate } from "@/lib/ratelimit";
+import { appendAudit } from "@/lib/audit";
 import type { ExtractedReport, MatchResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-// Parse a "data:image/jpeg;base64,...." URL into the provider-neutral shape.
 function parseDataUrl(dataUrl: string): ImageInput | null {
   const m = /^data:(image\/[a-zA-Z+]+);base64,(.+)$/.exec(dataUrl);
   if (!m) return null;
   return { mediaType: m[1], dataBase64: m[2] };
 }
 
-// POST { text, imageDataUrl? } -> extract a structured report (reading the photo
-// if present), store it, then run semantic matching against the opposite type.
+// POST { text, imageDataUrl?, deviceId?, phone?, replaceId? }
+// Extract a structured report (reading a photo if present), apply anti-spam,
+// store (or refine in place), audit it, then run semantic matching.
 export async function POST(req: Request) {
   try {
-    const { text, imageDataUrl } = await req.json();
+    const { text, imageDataUrl, deviceId, phone, replaceId } = await req.json();
     if ((!text || typeof text !== "string") && !imageDataUrl) {
       return NextResponse.json(
         { error: "Provide text and/or a photo." },
@@ -31,24 +33,53 @@ export async function POST(req: Request) {
       );
     }
 
+    // --- Anti-spam (skip on a refine of an existing report) ---
+    let trustFlags: string[] = [];
+    if (!replaceId) {
+      const rate = checkRate(deviceId, phone);
+      if (!rate.allowed) {
+        return NextResponse.json({ error: rate.flags[0] }, { status: 429 });
+      }
+      trustFlags = rate.flags;
+    }
+
     const trace: string[] = [];
     const image = imageDataUrl ? parseDataUrl(imageDataUrl) : null;
     if (image) trace.push("📷 Reading attached photo with vision");
 
-    // 1. Extract structured report from the free-form (multilingual) input + photo.
-    const extracted = await callStructured<ExtractedReport>({
+    // 1. Extract (schema also yields follow-up questions for missing detail).
+    const extracted = await callStructured<
+      ExtractedReport & { followUps: string[] }
+    >({
       system: INTAKE_SYSTEM,
       user: `A person at the help booth said:\n\n"${text || "(no words — see photo)"}"\n\nExtract the structured report.`,
       schema: REPORT_SCHEMA,
       images: image ? [image] : undefined,
     });
+    const { followUps, ...reportData } = extracted;
     trace.push(
-      `🗣 Detected ${extracted.detectedLanguage}; extracted a ${extracted.reportType.toUpperCase()} report (${extracted.urgency} urgency)`
+      `🗣 Detected ${reportData.detectedLanguage}; extracted a ${reportData.category}/${reportData.reportType.toUpperCase()} report (${reportData.urgency} urgency)`
     );
 
-    const report = addReport(extracted, imageDataUrl ?? null);
+    // 2. Store new, or refine an existing report in place.
+    const report = replaceId
+      ? updateReport(replaceId, reportData, imageDataUrl ?? null)
+      : addReport(reportData, imageDataUrl ?? null, trustFlags);
+    if (!report) {
+      return NextResponse.json(
+        { error: "Could not find the report to refine." },
+        { status: 404 }
+      );
+    }
+    if (trustFlags.length) trace.push(`🚩 ${trustFlags.join(" ")}`);
+    appendAudit(
+      "report_filed",
+      `${replaceId ? "Refined" : "Filed"} ${report.id} — ${report.summary}`,
+      report,
+      report.id
+    );
 
-    // 2. Match against the open reports of the opposite type.
+    // 3. Match against open reports of the opposite type, same category.
     const oppositeType = report.reportType === "lost" ? "found" : "lost";
     const candidates = listOpen(oppositeType).filter(
       (c) => c.id !== report.id && c.category === report.category
@@ -68,13 +99,27 @@ export async function POST(req: Request) {
       matches = result.matches.sort((a, b) => b.score - a.score);
     }
     const top = matches[0];
+    if (top) {
+      appendAudit(
+        "match_found",
+        `${report.id} ↔ ${top.reportId} at ${top.score}% (${top.confidence})`,
+        top,
+        report.id
+      );
+    }
     trace.push(
       top
         ? `🎯 Best match: ${top.reportId} at ${top.score}% (${top.confidence} confidence)`
         : "— No likely match yet; report added to the board"
     );
 
-    return NextResponse.json({ report, matches, trace, model: ACTIVE_MODEL });
+    return NextResponse.json({
+      report,
+      matches,
+      trace,
+      followUps,
+      model: ACTIVE_MODEL,
+    });
   } catch (err) {
     console.error(err);
     const message = err instanceof Error ? err.message : "Unexpected error";

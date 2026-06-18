@@ -23,7 +23,8 @@ function makeId(type: string) {
 
 export function addReport(
   extracted: ExtractedReport,
-  photoUrl?: string | null
+  photoUrl?: string | null,
+  trustFlags: string[] = []
 ): Report {
   const report: Report = {
     ...extracted,
@@ -31,9 +32,28 @@ export function addReport(
     status: "open",
     createdAt: Date.now(),
     photoUrl: photoUrl ?? null,
+    trustFlags,
   };
   state.reports.unshift(report);
   return report;
+}
+
+// Re-extract an existing report in place (conversational refine) — keeps the id
+// and position so we don't create duplicates when the reporter adds detail.
+export function updateReport(
+  id: string,
+  extracted: ExtractedReport,
+  photoUrl?: string | null
+): Report | undefined {
+  const existing = getReport(id);
+  if (!existing) return undefined;
+  Object.assign(existing, extracted, {
+    id: existing.id,
+    status: existing.status,
+    createdAt: existing.createdAt,
+    photoUrl: photoUrl ?? existing.photoUrl ?? null,
+  });
+  return existing;
 }
 
 export function getReport(id: string): Report | undefined {

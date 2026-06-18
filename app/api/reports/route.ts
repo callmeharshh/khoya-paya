@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { listReports, markReunited } from "@/lib/store";
+import { listReports, markReunited, getReport } from "@/lib/store";
 import { ACTIVE_MODEL, PROVIDER } from "@/lib/llm";
+import { appendAudit } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
@@ -12,9 +13,18 @@ export async function GET() {
   });
 }
 
-// POST { id, action: "reunite" } -> close a case.
+// POST { id, action: "reunite" } -> close a case (audited).
 export async function POST(req: Request) {
   const { id, action } = await req.json();
-  if (action === "reunite") markReunited(id);
+  if (action === "reunite") {
+    const r = getReport(id);
+    markReunited(id);
+    appendAudit(
+      "reunited",
+      `Case ${id} resolved — reunited${r ? `: ${r.summary}` : ""}`,
+      { id },
+      id
+    );
+  }
   return NextResponse.json({ reports: listReports() });
 }

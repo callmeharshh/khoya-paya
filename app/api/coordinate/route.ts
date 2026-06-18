@@ -6,6 +6,7 @@ import {
   buildCoordinatePrompt,
 } from "@/lib/prompts";
 import { getReport } from "@/lib/store";
+import { appendAudit } from "@/lib/audit";
 import type { CoordinationPlan } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -29,6 +30,13 @@ export async function POST(req: Request) {
       schema: COORDINATE_SCHEMA,
       maxTokens: 4000,
     });
+
+    appendAudit(
+      "match_found",
+      `Coordination plan for ${lost.id} ↔ ${found.id} → ${plan.routedCenter}`,
+      plan,
+      `${lost.id}+${found.id}`
+    );
 
     return NextResponse.json({ plan });
   } catch (err) {

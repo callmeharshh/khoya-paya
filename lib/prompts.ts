@@ -28,6 +28,7 @@ Rules:
 - summary: one tight English sentence a volunteer can read aloud.
 - List every language the missing/found person can understand in languagesSpoken — this is critical for announcements.
 - lastSeen.sector: map the described place to the SINGLE closest mela sector from this list, or null if unclear. Valid sectors: ${SECTOR_LIST_TEXT}.
+- followUps: if important details needed for a good match are MISSING, list 1-4 short, specific follow-up questions to ask the reporter now. For a person: clothing/colors, distinguishing features, approximate age, last-seen location/time. For an object: item type, brand, identifying marks, any serial/IMEI, contents. Return an empty array if the report is already detailed. Phrase each question simply, as a booth worker would ask it.
 - IF A PHOTO IS ATTACHED: read it carefully and use it to fill physical details — clothing and colors, approximate age, build, complexion, hair, and distinguishing features (glasses, marks, jewellery). Merge what you see with what the speaker said; if they conflict, prefer the photo for appearance and note it. Never guess identity beyond what is visible.`;
 
 export const REPORT_SCHEMA = {
@@ -114,6 +115,7 @@ export const REPORT_SCHEMA = {
     originalText: { type: "string" },
     urgency: { type: "string", enum: ["high", "medium", "low"] },
     summary: { type: "string" },
+    followUps: { type: "array", items: { type: "string" } },
   },
   required: [
     "category",
@@ -126,6 +128,7 @@ export const REPORT_SCHEMA = {
     "originalText",
     "urgency",
     "summary",
+    "followUps",
   ],
   additionalProperties: false,
 } as const;
@@ -323,6 +326,8 @@ verdict:
 - "deny": clear mismatches or fraud signals.
 - "escalate": any uncertainty, weak answers, OR any high-stakes case per the safety override.
 
+PHOTOS: two images may be attached — the FIRST is the photo on the found record, the SECOND is the claimant's own photo of the person/item they lost. If both are present, compare them and judge whether they show the same individual/item; weigh a clear visual match or mismatch heavily, and put your assessment in "photoComparison". If fewer than two photos are attached, set photoComparison to null.
+
 Give a 0-100 riskScore (higher = more likely fraud/unsafe), a confidence level, plain-English reasoning a staff member can act on, and a per-answer assessment.`;
 
 export const VERIFY_VERDICT_SCHEMA = {
@@ -347,6 +352,7 @@ export const VERIFY_VERDICT_SCHEMA = {
         additionalProperties: false,
       },
     },
+    photoComparison: { type: ["string", "null"] },
   },
   required: [
     "verdict",
@@ -356,6 +362,7 @@ export const VERIFY_VERDICT_SCHEMA = {
     "requiresHumanSignoff",
     "escalationReason",
     "answerAssessments",
+    "photoComparison",
   ],
   additionalProperties: false,
 } as const;

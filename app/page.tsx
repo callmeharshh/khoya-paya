@@ -54,6 +54,35 @@ export default function Home() {
   const [provider, setProvider] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
 
+  // Anti-spam device id, optional reporter phone, conversational follow-ups
+  const [deviceId, setDeviceId] = useState("");
+  const [phone, setPhone] = useState("");
+  const [followUps, setFollowUps] = useState<string[]>([]);
+  const [refineText, setRefineText] = useState("");
+  const [activeLostId, setActiveLostId] = useState<string | null>(null);
+
+  // Audit trail
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [audit, setAudit] = useState<{ entries: any[]; chainValid: boolean }>({
+    entries: [],
+    chainValid: true,
+  });
+
+  // Stable per-browser device id for rate-limiting (persisted locally).
+  useEffect(() => {
+    let id = localStorage.getItem("khoya-device");
+    if (!id) {
+      id = "dev-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem("khoya-device", id);
+    }
+    setDeviceId(id);
+  }, []);
+
+  async function loadAudit() {
+    const res = await fetch("/api/audit");
+    setAudit(await res.json());
+  }
+
   function onPhotoPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -81,23 +110,54 @@ export default function Home() {
     setMatches([]);
     setLastReport(null);
     setTrace([]);
+    setFollowUps([]);
+    setRefineText("");
     try {
       const res = await fetch("/api/intake", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, imageDataUrl: photoUrl }),
+        body: JSON.stringify({ text, imageDataUrl: photoUrl, deviceId, phone }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
       setLastReport(data.report);
       setMatches(data.matches);
       setTrace(data.trace || []);
+      setFollowUps(data.followUps || []);
       setModel(data.model || null);
       setText("");
       setPhotoUrl(null);
       loadReports();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Conversational refine: append the reporter's extra detail and re-extract the
+  // SAME report in place (no duplicate), then re-match.
+  async function refine() {
+    if (!lastReport || !refineText.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const combined = `${lastReport.originalText}\n\nAdditional details: ${refineText}`;
+      const res = await fetch("/api/intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: combined, replaceId: lastReport.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      setLastReport(data.report);
+      setMatches(data.matches);
+      setTrace(data.trace || []);
+      setFollowUps(data.followUps || []);
+      setRefineText("");
+      loadReports();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Refine failed");
     } finally {
       setLoading(false);
     }
@@ -153,6 +213,7 @@ export default function Home() {
           stage: "score",
           answers,
           claimantRelation: vRelation,
+          claimantReportId: activeLostId,
         }),
       });
       const data = await res.json();
@@ -175,6 +236,7 @@ export default function Home() {
     const foundId =
       lastReport.reportType === "found" ? lastReport.id : match.reportId;
     setActiveFoundId(foundId);
+    setActiveLostId(lostId);
     try {
       const res = await fetch("/api/coordinate", {
         method: "POST",
@@ -266,6 +328,16 @@ export default function Home() {
             )}
             <Stat label="Open cases" value={openCount} />
             <Stat label="Reunited today" value={reunitedCount} accent />
+            <button
+              onClick={() => {
+                loadAudit();
+                setAuditOpen(true);
+              }}
+              className="rounded-lg border border-black/15 px-3 py-1.5 text-xs font-semibold hover:bg-black/5"
+              title="Tamper-evident, hash-chained record of every action"
+            >
+              🔗 Audit trail
+            </button>
           </div>
         </div>
         <p className="mt-2 max-w-2xl text-kumbh-deep/70">
@@ -304,6 +376,13 @@ export default function Home() {
               rows={5}
               placeholder="e.g. Meri maa kho gayi hai, narangi saree, 70 saal..."
               className="w-full resize-none rounded-lg border border-black/15 bg-white p-3 text-sm outline-none focus:border-kumbh-saffron"
+            />
+
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="Your phone (optional — adds accountability, curbs spam)"
+              className="mt-2 w-full rounded-lg border border-black/15 bg-white p-2 text-sm outline-none focus:border-kumbh-saffron"
             />
 
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -382,7 +461,40 @@ export default function Home() {
                 <h3 className="font-semibold">Structured report</h3>
                 <Badge type={lastReport.reportType} urgency={lastReport.urgency} />
               </div>
+              {lastReport.trustFlags && lastReport.trustFlags.length > 0 && (
+                <p className="mb-2 rounded bg-red-50 px-2 py-1 text-xs font-semibold text-red-700">
+                  🚩 Flagged for review: {lastReport.trustFlags.join(" ")}
+                </p>
+              )}
               <ReportCard report={lastReport} />
+            </div>
+          )}
+
+          {/* Conversational follow-ups for missing detail */}
+          {lastReport && followUps.length > 0 && (
+            <div className="card border-l-4 border-l-kumbh-river p-5">
+              <h3 className="mb-1 font-semibold">
+                💬 The agent needs a bit more to improve the match
+              </h3>
+              <ul className="mb-3 list-inside list-disc space-y-1 text-sm">
+                {followUps.map((q, i) => (
+                  <li key={i}>{q}</li>
+                ))}
+              </ul>
+              <textarea
+                value={refineText}
+                onChange={(e) => setRefineText(e.target.value)}
+                rows={2}
+                placeholder="Answer here (any language) — e.g. orange saree, silver nose ring…"
+                className="w-full resize-none rounded-lg border border-black/15 p-2 text-sm outline-none focus:border-kumbh-river"
+              />
+              <button
+                onClick={refine}
+                disabled={loading || !refineText.trim()}
+                className="mt-2 rounded-lg bg-kumbh-river px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+              >
+                {loading ? "Updating…" : "Add detail & re-check"}
+              </button>
             </div>
           )}
 
@@ -628,6 +740,67 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Audit trail overlay */}
+      {auditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="font-display text-xl font-semibold">
+                🔗 Audit trail
+              </h3>
+              <button
+                onClick={() => setAuditOpen(false)}
+                className="text-kumbh-deep/40 hover:text-kumbh-deep"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mb-4 text-xs text-kumbh-deep/60">
+              Every action is a hash-chained, tamper-evident entry. Each hash can
+              be anchored to a public chain (e.g. Polygon) for on-chain proof —
+              without putting any personal data on the ledger.
+            </p>
+            <div
+              className={`mb-3 inline-block rounded px-2 py-1 text-xs font-semibold ${
+                audit.chainValid
+                  ? "bg-green-100 text-green-700"
+                  : "bg-red-100 text-red-700"
+              }`}
+            >
+              {audit.chainValid
+                ? "✅ Chain verified — no tampering"
+                : "❌ Chain broken — tampering detected"}
+            </div>
+            <ol className="space-y-2">
+              {audit.entries.length === 0 && (
+                <li className="text-sm text-kumbh-deep/50">
+                  No activity yet — file a report to start the chain.
+                </li>
+              )}
+              {[...audit.entries].reverse().map((e) => (
+                <li
+                  key={e.seq}
+                  className="rounded-lg border border-black/10 p-2 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold uppercase tracking-wide text-kumbh-river">
+                      #{e.seq} · {e.type}
+                    </span>
+                    <span className="text-kumbh-deep/40">
+                      {new Date(e.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <p className="mt-0.5">{e.summary}</p>
+                  <p className="mt-1 font-mono text-[10px] text-kumbh-deep/40">
+                    hash {e.entryHash.slice(0, 24)}… · prev {e.prevHash.slice(0, 12)}…
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -648,6 +821,12 @@ function VerdictBanner({ v }: { v: VerificationVerdict }) {
         </span>
       </div>
       <p className="mt-1 text-sm">{v.reasoning}</p>
+      {v.photoComparison && (
+        <p className="mt-2 rounded bg-black/5 px-2 py-1 text-xs">
+          📷 <span className="font-semibold">Photo check:</span>{" "}
+          {v.photoComparison}
+        </p>
+      )}
       {v.requiresHumanSignoff && (
         <p className="mt-2 rounded bg-black/5 px-2 py-1 text-xs font-semibold">
           🔒 Mandatory: senior-staff / police sign-off required before handover
