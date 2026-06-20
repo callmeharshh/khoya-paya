@@ -57,7 +57,13 @@ export default function Home() {
   // Anti-spam device id, optional reporter phone, conversational follow-ups
   const [deviceId, setDeviceId] = useState("");
   const [phone, setPhone] = useState("");
-  const [followUps, setFollowUps] = useState<string[]>([]);
+  const [completeness, setCompleteness] = useState<{
+    total: number;
+    filledCount: number;
+    complete: boolean;
+    captured: string[];
+    missing: { field: string; label: string; question: string }[];
+  } | null>(null);
   const [refineText, setRefineText] = useState("");
   const [activeLostId, setActiveLostId] = useState<string | null>(null);
 
@@ -110,7 +116,7 @@ export default function Home() {
     setMatches([]);
     setLastReport(null);
     setTrace([]);
-    setFollowUps([]);
+    setCompleteness(null);
     setRefineText("");
     try {
       const res = await fetch("/api/intake", {
@@ -123,7 +129,7 @@ export default function Home() {
       setLastReport(data.report);
       setMatches(data.matches);
       setTrace(data.trace || []);
-      setFollowUps(data.followUps || []);
+      setCompleteness(data.completeness || null);
       setModel(data.model || null);
       setText("");
       setPhotoUrl(null);
@@ -153,7 +159,7 @@ export default function Home() {
       setLastReport(data.report);
       setMatches(data.matches);
       setTrace(data.trace || []);
-      setFollowUps(data.followUps || []);
+      setCompleteness(data.completeness || null);
       setRefineText("");
       loadReports();
     } catch (e) {
@@ -470,31 +476,74 @@ export default function Home() {
             </div>
           )}
 
-          {/* Conversational follow-ups for missing detail */}
-          {lastReport && followUps.length > 0 && (
-            <div className="card border-l-4 border-l-kumbh-river p-5">
-              <h3 className="mb-1 font-semibold">
-                💬 The agent needs a bit more to improve the match
-              </h3>
-              <ul className="mb-3 list-inside list-disc space-y-1 text-sm">
-                {followUps.map((q, i) => (
-                  <li key={i}>{q}</li>
-                ))}
-              </ul>
-              <textarea
-                value={refineText}
-                onChange={(e) => setRefineText(e.target.value)}
-                rows={2}
-                placeholder="Answer here (any language) — e.g. orange saree, silver nose ring…"
-                className="w-full resize-none rounded-lg border border-black/15 p-2 text-sm outline-none focus:border-kumbh-river"
-              />
-              <button
-                onClick={refine}
-                disabled={loading || !refineText.trim()}
-                className="mt-2 rounded-lg bg-kumbh-river px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
-              >
-                {loading ? "Updating…" : "Add detail & re-check"}
-              </button>
+          {/* Structured appearance profile — loop until all params captured */}
+          {lastReport && completeness && (
+            <div
+              className={`card border-l-4 p-5 ${
+                completeness.complete
+                  ? "border-l-green-500"
+                  : "border-l-kumbh-river"
+              }`}
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="font-semibold">
+                  📋 Appearance profile
+                </h3>
+                <span
+                  className={`text-sm font-semibold ${
+                    completeness.complete ? "text-green-600" : "text-kumbh-river"
+                  }`}
+                >
+                  {completeness.filledCount}/{completeness.total} captured
+                </span>
+              </div>
+
+              {/* progress bar */}
+              <div className="mb-3 h-2 w-full overflow-hidden rounded bg-black/10">
+                <div
+                  className={`h-full rounded ${
+                    completeness.complete ? "bg-green-500" : "bg-kumbh-river"
+                  }`}
+                  style={{
+                    width: `${(completeness.filledCount / completeness.total) * 100}%`,
+                  }}
+                />
+              </div>
+
+              {completeness.complete ? (
+                <p className="text-sm text-green-700">
+                  ✅ Complete description — all {completeness.total} core details
+                  captured. Ready to match with confidence.
+                </p>
+              ) : (
+                <>
+                  <p className="mb-1 text-sm text-kumbh-deep/70">
+                    Still need:{" "}
+                    <span className="font-medium">
+                      {completeness.missing.map((m) => m.label).join(", ")}
+                    </span>
+                  </p>
+                  <ul className="mb-3 list-inside list-disc space-y-1 text-sm">
+                    {completeness.missing.map((m) => (
+                      <li key={m.field}>{m.question}</li>
+                    ))}
+                  </ul>
+                  <textarea
+                    value={refineText}
+                    onChange={(e) => setRefineText(e.target.value)}
+                    rows={2}
+                    placeholder="Answer here (any language) — e.g. orange saree, ~70, walks with a stick…"
+                    className="w-full resize-none rounded-lg border border-black/15 p-2 text-sm outline-none focus:border-kumbh-river"
+                  />
+                  <button
+                    onClick={refine}
+                    disabled={loading || !refineText.trim()}
+                    className="mt-2 rounded-lg bg-kumbh-river px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                  >
+                    {loading ? "Updating…" : "Add details & continue"}
+                  </button>
+                </>
+              )}
             </div>
           )}
 

@@ -10,6 +10,7 @@ import {
 import { addReport, updateReport, listOpen } from "@/lib/store";
 import { checkRate } from "@/lib/ratelimit";
 import { appendAudit } from "@/lib/audit";
+import { computeCompleteness } from "@/lib/profile";
 import type { ExtractedReport, MatchResult } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -47,16 +48,13 @@ export async function POST(req: Request) {
     const image = imageDataUrl ? parseDataUrl(imageDataUrl) : null;
     if (image) trace.push("📷 Reading attached photo with vision");
 
-    // 1. Extract (schema also yields follow-up questions for missing detail).
-    const extracted = await callStructured<
-      ExtractedReport & { followUps: string[] }
-    >({
+    // 1. Extract the structured report.
+    const reportData = await callStructured<ExtractedReport>({
       system: INTAKE_SYSTEM,
       user: `A person at the help booth said:\n\n"${text || "(no words — see photo)"}"\n\nExtract the structured report.`,
       schema: REPORT_SCHEMA,
       images: image ? [image] : undefined,
     });
-    const { followUps, ...reportData } = extracted;
     trace.push(
       `🗣 Detected ${reportData.detectedLanguage}; extracted a ${reportData.category}/${reportData.reportType.toUpperCase()} report (${reportData.urgency} urgency)`
     );
@@ -77,6 +75,12 @@ export async function POST(req: Request) {
       `${replaceId ? "Refined" : "Filed"} ${report.id} — ${report.summary}`,
       report,
       report.id
+    );
+
+    // Structured appearance profile — which core parameters are still missing.
+    const completeness = computeCompleteness(report);
+    trace.push(
+      `📋 Appearance profile: ${completeness.filledCount}/${completeness.total} core details captured`
     );
 
     // 3. Match against open reports of the opposite type, same category.
@@ -117,7 +121,7 @@ export async function POST(req: Request) {
       report,
       matches,
       trace,
-      followUps,
+      completeness,
       model: ACTIVE_MODEL,
     });
   } catch (err) {

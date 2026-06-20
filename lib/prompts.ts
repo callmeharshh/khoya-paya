@@ -28,7 +28,6 @@ Rules:
 - summary: one tight English sentence a volunteer can read aloud.
 - List every language the missing/found person can understand in languagesSpoken — this is critical for announcements.
 - lastSeen.sector: map the described place to the SINGLE closest mela sector from this list, or null if unclear. Valid sectors: ${SECTOR_LIST_TEXT}.
-- followUps: if important details needed for a good match are MISSING, list 1-4 short, specific follow-up questions to ask the reporter now. For a person: clothing/colors, distinguishing features, approximate age, last-seen location/time. For an object: item type, brand, identifying marks, any serial/IMEI, contents. Return an empty array if the report is already detailed. Phrase each question simply, as a booth worker would ask it.
 - IF A PHOTO IS ATTACHED: read it carefully and use it to fill physical details — clothing and colors, approximate age, build, complexion, hair, and distinguishing features (glasses, marks, jewellery). Merge what you see with what the speaker said; if they conflict, prefer the photo for appearance and note it. Never guess identity beyond what is visible.`;
 
 export const REPORT_SCHEMA = {
@@ -115,7 +114,6 @@ export const REPORT_SCHEMA = {
     originalText: { type: "string" },
     urgency: { type: "string", enum: ["high", "medium", "low"] },
     summary: { type: "string" },
-    followUps: { type: "array", items: { type: "string" } },
   },
   required: [
     "category",
@@ -128,7 +126,6 @@ export const REPORT_SCHEMA = {
     "originalText",
     "urgency",
     "summary",
-    "followUps",
   ],
   additionalProperties: false,
 } as const;
