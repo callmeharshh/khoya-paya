@@ -69,10 +69,37 @@ export default function Home() {
 
   // Audit trail
   const [auditOpen, setAuditOpen] = useState(false);
-  const [audit, setAudit] = useState<{ entries: any[]; chainValid: boolean }>({
-    entries: [],
-    chainValid: true,
-  });
+  const [audit, setAudit] = useState<{
+    entries: any[];
+    chainValid: boolean;
+    anchors?: any[];
+    chainConfigured?: boolean;
+    network?: string;
+  }>({ entries: [], chainValid: true });
+  const [anchoring, setAnchoring] = useState(false);
+  const [anchorMsg, setAnchorMsg] = useState<string | null>(null);
+
+  async function anchorChain() {
+    setAnchoring(true);
+    setAnchorMsg(null);
+    try {
+      const res = await fetch("/api/anchor", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      if (data.result?.configured === false) {
+        setAnchorMsg(data.result.error);
+      } else if (data.result?.error) {
+        setAnchorMsg("On-chain error: " + data.result.error);
+      } else {
+        setAnchorMsg(`✅ Anchored on-chain in block ${data.result.blockNumber}`);
+      }
+      await loadAudit();
+    } catch (e) {
+      setAnchorMsg(e instanceof Error ? e.message : "Anchor failed");
+    } finally {
+      setAnchoring(false);
+    }
+  }
 
   // Stable per-browser device id for rate-limiting (persisted locally).
   useEffect(() => {
@@ -821,6 +848,61 @@ export default function Home() {
                 ? "✅ Chain verified — no tampering"
                 : "❌ Chain broken — tampering detected"}
             </div>
+
+            {/* Polygon anchoring — notarize the chain head on-chain */}
+            <div className="mb-4 rounded-lg border border-kumbh-river/30 bg-kumbh-sand p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">
+                  ⛓ Polygon anchor{" "}
+                  <span className="font-normal text-kumbh-deep/50">
+                    ({audit.network || "testnet"})
+                  </span>
+                </span>
+                <button
+                  onClick={anchorChain}
+                  disabled={anchoring}
+                  className="rounded-lg bg-kumbh-river px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+                >
+                  {anchoring ? "Anchoring…" : "Anchor chain on-chain"}
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-kumbh-deep/60">
+                Writes only the chain&apos;s head hash to Polygon — public,
+                tamper-proof proof, with zero personal data on-chain.
+              </p>
+              {audit.chainConfigured === false && (
+                <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                  Not configured — set <code>POLYGON_PRIVATE_KEY</code> (a funded
+                  Amoy testnet wallet) in <code>.env.local</code> to enable.
+                </p>
+              )}
+              {anchorMsg && (
+                <p className="mt-2 text-xs font-medium text-kumbh-deep/80">
+                  {anchorMsg}
+                </p>
+              )}
+              {audit.anchors && audit.anchors.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {audit.anchors.map((a: any, i: number) => (
+                    <li key={i} className="text-xs">
+                      🔗{" "}
+                      <a
+                        href={a.explorer}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-kumbh-river underline"
+                      >
+                        {a.txHash.slice(0, 18)}…
+                      </a>{" "}
+                      <span className="text-kumbh-deep/50">
+                        block {a.blockNumber ?? "pending"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             <ol className="space-y-2">
               {audit.entries.length === 0 && (
                 <li className="text-sm text-kumbh-deep/50">

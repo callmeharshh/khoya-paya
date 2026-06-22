@@ -54,6 +54,33 @@ export function getAudit(): AuditEntry[] {
   return log;
 }
 
+// --- Polygon anchors: a record of audit-chain hashes notarized on-chain. ---
+
+export interface Anchor {
+  label: string;
+  hash: string; // the audit-chain head hash that was anchored
+  txHash: string;
+  blockNumber: number | null;
+  explorer: string;
+  timestamp: number;
+}
+
+const ag = globalThis as unknown as { __khoyaAnchors?: Anchor[] };
+const anchors: Anchor[] = ag.__khoyaAnchors ?? (ag.__khoyaAnchors = []);
+
+export function addAnchor(a: Anchor): void {
+  anchors.push(a);
+}
+
+export function getAnchors(): Anchor[] {
+  return anchors;
+}
+
+// The current head hash commits to the entire chain (or null if empty).
+export function headHash(): string | null {
+  return log.length ? log[log.length - 1].entryHash : null;
+}
+
 // Recompute the chain to prove nothing was tampered with.
 export function verifyChain(): boolean {
   let prev = "GENESIS";
