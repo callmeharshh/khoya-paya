@@ -1,5 +1,11 @@
 # Khoya·Paya — a reunification agent for Kumbh Mela 2027
 
+![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)
+![Claude](https://img.shields.io/badge/Model-Claude%20Opus%204.8-d97757)
+![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-server-6E40C9)
+![Polygon](https://img.shields.io/badge/Anchoring-Polygon-8247E5?logo=polygon&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 > Built for the **Claude Impact Lab** (Kumbhathon Innovation Foundation × Claude India).
 > Problem area: **Multilingual Communication Systems / Agentic AI for Administration.**
 
@@ -49,8 +55,20 @@ deployability** — Khoya·Paya is built to score on all four:
 - **Semantic cross-lingual matching** with scored, explained candidates (people *and* objects — "dark phone" ≈ "black mobile").
 - **Multilingual reunion coordination** — loudspeaker announcements per language + routing + a safety verification checklist.
 - **Trust & Safety — AI verification interview** — before any handover, the agent generates private challenge questions only the genuine family/owner could answer (from the found record), scores the claimant's answers with a fraud-risk score, and **refuses to release a child or vulnerable adult on AI alone** (forces human/police sign-off). This is what stops a wrong or fraudulent handover.
+- **Proof-of-Reunion anchoring** — each confirmed reunion can be anchored on **Polygon** for a tamper-evident audit trail (`lib/chain.ts`, `app/api/anchor`).
 - **Live agent activity trace** — shows the steps the agent took on each report.
 - **Provider layer** — Claude by default (what you demo/submit); a clearly-flagged Gemini dev fallback for local testing before you have an Anthropic key. A header badge turns **red** on Gemini so you never demo on the wrong model.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 15 (App Router), React 19, TypeScript |
+| AI | `@anthropic-ai/sdk` (Claude Opus 4.8), `@google/genai` (dev fallback) |
+| Agent interface | `@modelcontextprotocol/sdk` (MCP server) |
+| Validation | Zod (forced-tool structured output) |
+| On-chain | `ethers` (Polygon anchoring) |
+| Styling | Tailwind CSS |
 
 ## Run it
 
@@ -79,6 +97,8 @@ npm run dev                        # http://localhost:3000
 4. Click **Mark reunited** → the reunion counter ticks up.
 5. (Optional) Hit **🎤 Speak** and say the lost-child case out loud to show live
    voice intake.
+
+> A scene-by-scene recording script for a 30–90s video lives in [`demo-script.md`](./demo-script.md).
 
 ---
 
@@ -128,6 +148,9 @@ Browser (voice / text, any language)
                         │
                         ▼
 /api/coordinate ──► Claude: multilingual announcements + safety checklist + routing
+                        │
+                        ▼
+/api/anchor ──► Polygon: tamper-evident Proof-of-Reunion
 ```
 
 | File | Role |
@@ -135,13 +158,44 @@ Browser (voice / text, any language)
 | `lib/prompts.ts` | The three agent prompts + JSON schemas (the core IP) |
 | `lib/anthropic.ts` | Claude client + `callStructured` (forced-tool structured output) |
 | `lib/store.ts` | In-memory report store, seeded with realistic demo cases |
-| `app/api/*` | Intake, match, coordinate, and board endpoints |
+| `lib/chain.ts` / `lib/audit.ts` | Polygon anchoring + audit trail |
+| `mcp/server.ts` | MCP server exposing the pipeline as tools |
+| `app/api/*` | Intake, match, coordinate, anchor, verify, board endpoints |
 | `app/page.tsx` | Help-booth intake + live control-room board |
-
-**Production path (post-hackathon, via Kumbhathon incubation):** swap the
-in-memory store for the government registry, wire the announcements to the real
-loudspeaker/PA and SMS systems, add the matching as an [MCP server](https://modelcontextprotocol.io)
-so it plugs into a Claude-powered control room, and add photo matching.
 
 > Model: `claude-opus-4-8`. Structured output via forced tool calls for
 > reliable JSON on any SDK version.
+
+## 🖼️ Screenshots
+
+> _Add screenshots / GIFs here._
+> - `docs/board.png` — live control-room board
+> - `docs/intake.png` — multilingual voice/text intake
+> - `docs/match.png` — Claude's explained semantic match
+> - `docs/coordinate.png` — generated loudspeaker announcements + safety checklist
+
+## 🗺️ Roadmap
+
+**Production path (post-hackathon, via Kumbhathon incubation):**
+
+- [ ] Swap the in-memory store for the government registry
+- [ ] Wire announcements to the real loudspeaker/PA and SMS systems
+- [ ] Expand photo / face-assisted matching
+- [ ] Offline-first mode for low-connectivity ghats
+- [ ] Multi-center dashboard with role-based access for staff & police
+- [ ] Hosted MCP server so it plugs into a Claude-powered control room out of the box
+
+## 📚 Lessons Learned
+
+- **Structured output is non-negotiable for agents that take real actions.** Forcing Claude through tool calls + Zod schemas (instead of parsing free text) made the pipeline reliable enough to demo live — and would be safe enough to deploy.
+- **Designing for *deployability* changes the architecture.** Building around "a phone, a booth, a loudspeaker" instead of fancy infra is what makes this actually runnable at a mela of 80M+ people.
+- **Safety is a feature, not an afterthought.** The verification-interview + human-sign-off flow came from asking "what's the worst thing this system could do?" — handing a child to the wrong adult — and designing to prevent it.
+
+## 📬 Contact
+
+Built by **Harsh Agrawal** — [GitHub @callmeharshh](https://github.com/callmeharshh)
+Open to Agentic AI / Founder's Office internships. Issues and PRs welcome.
+
+---
+
+> ⚖️ MIT licensed.
